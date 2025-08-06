@@ -1,12 +1,12 @@
 # AI Podcast Clipper 🎹🎨
 
-Automatically convert full podcast episodes into viral, short-form clips optimized for platforms like **YouTube Shorts** and **TikTok**. This AI-powered SaaS application intelligently transcribes podcasts, detects viral moments, identifies the active speaker, and renders vertical clips ready to publish.
+Automatically convert full podcast episodes into viral, short-form clips optimized for platforms like **YouTube Shorts**. This AI-powered SaaS application intelligently transcribes podcasts, detects viral moments, identifies the active speaker, and renders vertical clips ready to publish.
 
 ---
 
 ## 🔗 Live Demo
 
-🔗 [Visit the Live App](https://frontend-five-snowy-51.vercel.app)
+🔗 [Visit the Live App](https://frontend-five-snowy-51.vercel.app/signup)
 
 ---
 
@@ -45,7 +45,6 @@ This is a full-stack, production-ready SaaS platform that empowers podcast creat
 * React + TypeScript
 * Tailwind CSS
 * ShadCN UI
-* Framer Motion
 * Auth.js
 
 ### 🧬 Backend
@@ -82,15 +81,42 @@ git clone https://github.com/rashap224/ai-podcast-clips.git
 cd ai-podcast-clips
 ```
 
-### 🛠️ Backend Setup
+Navigate to backend folder:
 
 ```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate  # or source venv/bin/activate on Mac/Linux
-pip install -r requirements.txt
-python main.py
+cd ai-podcast-clips-backend
 ```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Clone the [LR-ASD](https://github.com/Junhua-Liao/LR-ASD) repo into the backend folder
+
+```bash
+git clone https://github.com/Junhua-Liao/LR-ASD.git
+```
+
+Modal setup:
+
+```bash
+modal setup
+```
+
+Run on Modal:
+
+```bash
+modal run main.py
+```
+
+Deploy backend:
+
+```bash
+modal deploy main.py
+```
+
 
 ### 🗱 Frontend Setup
 
