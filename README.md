@@ -136,9 +136,12 @@ ai-podcast-clips/
 ## 📈 Future Roadmap
 
 * Add multilingual subtitle support
-* Clip editor with drag-and-drop cropping
-* Auto-thumbnail generation using Gemini Vision
-* Video summary and tagging with LLMs
+* Experiment with viral moment identification prompts to extract interesting parts from videos, I ll try using different Gemini models
+* Add multiple modes (e.g., “question mode”, “story mode”) via a frontend dropdown, processed differently in the backend.
+* Enable YouTube link input to auto-download videos using tools like pytubefix or yt-dlp, avoiding manual uploads.
+* Allow YouTube channel connection to automatically fetch videos from the user's linked channel.
+* Use a CRON job to auto-schedule, clip, render, and post one video clip to the user's YouTube channel daily.
+* Render low-resolution clip previews for faster browsing, with an option to re-render selected clips in 1920×1080.
 
 ---
 
@@ -156,5 +159,3 @@ ai-podcast-clips/
 
 ---
 
-
-MIT License © 2025 Rashap Goyal
