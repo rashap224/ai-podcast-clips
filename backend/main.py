@@ -361,7 +361,7 @@ class AiPodcastClips:
         return json.dumps(segments)
 
     def identify_moments(self, transcript: dict):
-        response = self.gemini_client.models.generate_content(model="gemini-2.5-flash-lite", contents="""
+        response = self.gemini_client.models.generate_content(model="gemini-2.5-flash", contents="""
     This is a podcast video transcript consisting of word, along with each words's start and end time. I am looking to create clips between a minimum of 30 and maximum of 60 seconds long. The clip should never exceed 60 seconds.
 
     Your task is to find and extract stories, or question and their corresponding answers from the transcript.
