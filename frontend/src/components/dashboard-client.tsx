@@ -140,24 +140,32 @@ export function DashboardClient({
                 disabled={uploading}
                 maxFiles={1}
               >
-                {(_dropzone: DropzoneState) => (
-                  <>
-                    <div className="flex flex-col items-center justify-center space-y-4 rounded-lg p-10 text-center">
-                      <UploadCloud className="text-muted-foreground h-12 w-12" />
-                      <p className="font-medium">Drag and drop your file</p>
-                      <p className="text-muted-foreground text-sm">
-                        or click to browse (MP4 up to 500MB)
-                      </p>
-                      <Button
-                        className="cursor-pointer"
-                        variant="default"
-                        size="sm"
-                        disabled={uploading}
-                      >
-                        Select File
-                      </Button>
-                    </div>
-                  </>
+                {(dropzone: DropzoneState) => (
+                  <div
+                    {...dropzone.getRootProps({
+                      className:
+                        "flex flex-col items-center justify-center space-y-4 rounded-lg p-10 text-center",
+                    })}
+                  >
+                    <input {...dropzone.getInputProps()} />
+                    <UploadCloud className="text-muted-foreground h-12 w-12" />
+                    <p className="font-medium">Drag and drop your file</p>
+                    <p className="text-muted-foreground text-sm">
+                      or click to browse (MP4 up to 500MB)
+                    </p>
+                    <Button
+                      className="cursor-pointer"
+                      variant="default"
+                      size="sm"
+                      disabled={uploading}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        dropzone.open();
+                      }}
+                    >
+                      Select File
+                    </Button>
+                  </div>
                 )}
               </Dropzone>
 

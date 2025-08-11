@@ -52,7 +52,7 @@ const plans: PricingPlan[] = [
   {
     title: "Large Pack",
     price: "$69.99",
-    description: "Ideal for podcast studioes and agencies",
+  description: "Ideal for podcast studios and agencies",
     features: ["500 credits", "No expiration", "Download all clips"],
     buttonText: "Buy 500 credits",
     buttonVariant: "outline",
@@ -128,7 +128,7 @@ export default function BillingPage() {
             Buy Credits
           </h1>
           <p className="text-muted-foreground">
-            Purchase credits to generate more podcast clips. The more credtis
+            Purchase credits to generate more podcast clips. The more credits
             you buy, the better the value.
           </p>
         </div>
