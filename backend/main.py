@@ -30,6 +30,8 @@ class ProcessVideoRequest(BaseModel):
     model: Optional[str] = None
     # Optional: compute global ASD to bias candidate selection (heavier but more accurate)
     compute_asd: Optional[bool] = True
+    # Optional: cap the number of clips to render; if None, backend will decide from duration
+    max_clips: Optional[int] = None
 
 THIS_DIR = os.path.dirname(__file__)
 REQ_FILE = os.path.join(THIS_DIR, "requirements.txt")
@@ -53,6 +55,22 @@ volume = modal.Volume.from_name(
 mount_path = "/root/.cache/torch"
 
 auth_scheme = HTTPBearer()
+
+
+# Helper: probe media duration (seconds) using ffprobe
+def get_media_duration_seconds(path: pathlib.Path) -> Optional[float]:
+    try:
+        cmd = (
+            f'ffprobe -v error -show_entries format=duration '
+            f'-of default=noprint_wrappers=1:nokey=1 "{path}"'
+        )
+        res = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        val = res.stdout.strip()
+        dur = float(val)
+        return dur if dur > 0 else None
+    except Exception as e:
+        print(f"ffprobe duration failed: {e}")
+        return None
 
 
 def create_vertical_video(tracks, scores, pyframes_path, pyavi_path, audio_path, output_path, framerate=25):
@@ -714,8 +732,39 @@ Bad output (avoid greeting-only or overlapping): []
         clip_moments = self.enforce_clip_bounds(clip_moments, sentences_for_bounds, min_len=30.0, max_len=60.0)
         print(clip_moments)
 
+        # Decide how many clips to render
+        # Priority: request.max_clips -> env MAX_CLIPS -> dynamic by duration (~1 per 6 minutes, min 1, max 12)
+        max_clips = None
+        if request.max_clips is not None:
+            try:
+                max_clips = max(1, min(20, int(request.max_clips)))
+            except Exception:
+                max_clips = None
+
+        if max_clips is None:
+            env_max = os.environ.get("MAX_CLIPS")
+            if env_max:
+                try:
+                    max_clips = max(1, min(20, int(env_max)))
+                except Exception:
+                    max_clips = None
+
+        if max_clips is None:
+            dur = get_media_duration_seconds(video_path) or 0.0
+            if dur > 0:
+                # About 1 clip per 6 minutes of video. Clamp to [1, 12].
+                # 6 minutes = 360 seconds
+                max_clips = max(1, min(12, int(dur // 360)))
+                if max_clips == 0:
+                    max_clips = 1
+            else:
+                # Fallback if duration unavailable
+                max_clips = 6
+
+        print(f"Rendering up to {max_clips} clips (identified {len(clip_moments)})")
+
         # 3. Process clips
-        for index, moment in enumerate(clip_moments[:5]):
+        for index, moment in enumerate(clip_moments[:max_clips]):
             if "start" in moment and "end" in moment:
                 print("Processing clip" + str(index) + " from " +
                       str(moment["start"]) + " to " + str(moment["end"]))
