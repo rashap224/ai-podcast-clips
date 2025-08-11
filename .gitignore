@@ -1,0 +1,140 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+dist/
+build/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.coverage*
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.pytype/
+.dmypy.json
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+.python-version
+.env
+.env.*
+*.env
+
+# Caches
+.cache/
+**/.cache/
+__pypackages__/
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project: generated artifacts (clips, frames, ASD/WhisperX outputs)
+backend/**/pyframes/
+backend/**/pywork/
+backend/**/pyavi/
+backend/**/audio.wav
+backend/**/clip_*.mp4
+backend/**/input.mp4
+backend/**/input/
+backend/**/output/
+backend/**/runs/
+backend/**/frames/
+
+# LR-ASD model weights (keep dir, ignore large binaries)
+backend/LR-ASD/weight/*
+!backend/LR-ASD/weight/.keep
+
+# Media outputs in top-level common output dirs (if you create them)
+clips/
+outputs/
+```# filepath: d:\ai-podcast-clips\.gitignore
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+dist/
+build/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.coverage*
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.pytype/
+.dmypy.json
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+.python-version
+.env
+.env.*
+*.env
+
+# Caches
+.cache/
+**/.cache/
+__pypackages__/
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project: generated artifacts (clips, frames, ASD/WhisperX outputs)
+backend/**/pyframes/
+backend/**/pywork/
+backend/**/pyavi/
+backend/**/audio.wav
+backend/**/clip_*.mp4
+backend/**/input.mp4
+backend/**/input/
+backend/**/output/
+backend/**/runs/
+backend/**/frames/
+
+# LR-ASD model weights (keep dir, ignore large binaries)
+backend/LR-ASD/weight/*
+!backend/LR-ASD/weight/.keep
+
+# Media outputs in top-level common output dirs (if you create them)
+clips/
