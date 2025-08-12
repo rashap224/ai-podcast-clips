@@ -8,7 +8,6 @@ import time
 import uuid
 import boto3
 import cv2
-from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import ffmpegcv
@@ -17,7 +16,6 @@ import numpy as np
 from pydantic import BaseModel
 import os
 from google import genai
-from google.genai import types
 
 import pysubs2
 from tqdm import tqdm
@@ -26,25 +24,16 @@ import whisperx
 
 class ProcessVideoRequest(BaseModel):
     s3_key: str
-    # Optional: per-request Gemini model override (e.g., "gemini-2.5-pro", "gemini-2.5-flash")
-    model: Optional[str] = None
-    # Optional: compute global ASD to bias candidate selection (heavier but more accurate)
-    compute_asd: Optional[bool] = True
-    # Optional: cap the number of clips to render; if None, backend will decide from duration
-    max_clips: Optional[int] = None
 
-THIS_DIR = os.path.dirname(__file__)
-REQ_FILE = os.path.join(THIS_DIR, "requirements.txt")
-LR_ASD_DIR = os.path.join(THIS_DIR, "LR-ASD")
 
 image = (modal.Image.from_registry(
     "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.12")
     .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget", "libcudnn8", "libcudnn8-dev"])
-    .pip_install_from_requirements(REQ_FILE)
+    .pip_install_from_requirements("requirements.txt")
     .run_commands(["mkdir -p /usr/share/fonts/truetype/custom",
                    "wget -O /usr/share/fonts/truetype/custom/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
                    "fc-cache -f -v"])
-    .add_local_dir(LR_ASD_DIR, "/LR-ASD", copy=True))
+    .add_local_dir("LR-ASD", "/LR-ASD", copy=True))
 
 app = modal.App("ai-podcast-clips", image=image)
 
@@ -55,22 +44,6 @@ volume = modal.Volume.from_name(
 mount_path = "/root/.cache/torch"
 
 auth_scheme = HTTPBearer()
-
-
-# Helper: probe media duration (seconds) using ffprobe
-def get_media_duration_seconds(path: pathlib.Path) -> Optional[float]:
-    try:
-        cmd = (
-            f'ffprobe -v error -show_entries format=duration '
-            f'-of default=noprint_wrappers=1:nokey=1 "{path}"'
-        )
-        res = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-        val = res.stdout.strip()
-        dur = float(val)
-        return dur if dur > 0 else None
-    except Exception as e:
-        print(f"ffprobe duration failed: {e}")
-        return None
 
 
 def create_vertical_video(tracks, scores, pyframes_path, pyavi_path, audio_path, output_path, framerate=25):
@@ -348,14 +321,7 @@ class AiPodcastClips:
         print("Transcription models loaded...")
 
         print("Creating gemini client...")
-        gem_api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not gem_api_key:
-            raise RuntimeError(
-                "Missing GEMINI_API_KEY (or GOOGLE_API_KEY). Configure it via a Modal secret 'ai-podcast-clips-secret' or environment variable."
-            )
-        self.gemini_client = genai.Client(api_key=gem_api_key) 
-        # Default to balanced price/performance; allow override via GEMINI_MODEL
-        self.gen_model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         print("Created gemini client...")
 
     def transcribe_video(self, base_dir: str, video_path: str) -> str:
@@ -394,300 +360,36 @@ class AiPodcastClips:
 
         return json.dumps(segments)
 
-    # --- Helpers to structure transcript into sentences and candidates ---
-    def words_to_sentences(self, words: list, max_gap: float = 0.6, max_words: int = 30):
-        sentences = []
-        cur_words = []
-        cur_start = None
-        prev_end = None
+    def identify_moments(self, transcript: dict):
+        response = self.gemini_client.models.generate_content(model="gemini-2.5-flash-preview-04-17", contents="""
+    This is a podcast video transcript consisting of word, along with each words's start and end time. I am looking to create clips between a minimum of 30 and maximum of 60 seconds long. The clip should never exceed 60 seconds.
 
-        def flush():
-            if cur_words and cur_start is not None and prev_end is not None:
-                sentences.append({
-                    "start": cur_start,
-                    "end": prev_end,
-                    "text": " ".join(cur_words)
-                })
+    Your task is to find and extract stories, or question and their corresponding answers from the transcript.
+    Each clip should begin with the question and conclude with the answer.
+    It is acceptable for the clip to include a few additional sentences before a question if it aids in contextualizing the question.
 
-        for w in words:
-            wstart = w.get("start")
-            wend = w.get("end")
-            wtext = (w.get("word") or "").strip()
-            if wstart is None or wend is None or not wtext:
-                continue
+    Please adhere to the following rules:
+    - Ensure that clips do not overlap with one another.
+    - Start and end timestamps of the clips should align perfectly with the sentence boundaries in the transcript.
+    - Only use the start and end timestamps provided in the input. modifying timestamps is not allowed.
+    - Format the output as a list of JSON objects, each representing a clip with 'start' and 'end' timestamps: [{"start": seconds, "end": seconds}, ...clip2, clip3]. The output should always be readable by the python json.loads function.
+    - Aim to generate longer clips between 40-60 seconds, and ensure to include as much content from the context as viable.
 
-            # Start a new sentence on long pause or length cap
-            if prev_end is not None and ((wstart - prev_end) > max_gap or len(cur_words) >= max_words):
-                flush()
-                cur_words = []
-                cur_start = None
+    Avoid including:
+    - Moments of greeting, thanking, or saying goodbye.
+    - Non-question and answer interactions.
 
-            if not cur_words:
-                cur_start = wstart
-            cur_words.append(wtext)
-            prev_end = wend
+    If there are no valid clips to extract, the output should be an empty list [], in JSON format. Also readable by json.loads() in Python.
 
-        flush()
-        return sentences
-
-    def propose_candidates(self, sentences: list, min_len: float = 30.0, max_len: float = 60.0, stride: int = 1, asd_scores: Optional[list] = None, asd_fps: Optional[float] = None):
-        def q_score(text: str) -> int:
-            toks = text.lower().split()
-            qs = {"who", "what", "why", "how", "when", "where", "did", "do", "does", "can", "should", "would", "is", "are", "could"}
-            return sum(1 for t in toks if t in qs)
-
-        def mean_asd(start_s: float, end_s: float) -> float:
-            if not asd_scores or not asd_fps or end_s <= start_s:
-                return 0.0
-            s_idx = max(0, int(start_s * asd_fps))
-            e_idx = min(len(asd_scores), int(end_s * asd_fps))
-            if e_idx <= s_idx:
-                return 0.0
-            window = asd_scores[s_idx:e_idx]
-            if not window:
-                return 0.0
-            return float(np.mean(window))
-
-        cands = []
-        n = len(sentences)
-        for i in range(0, n, stride):
-            cur_start = sentences[i]["start"]
-            cur_end = sentences[i]["end"]
-            cur_text = [sentences[i]["text"]]
-            score = q_score(sentences[i]["text"])
-            j = i + 1
-            while j < n and (cur_end - cur_start) < max_len:
-                cur_end = sentences[j]["end"]
-                cur_text.append(sentences[j]["text"])
-                score += q_score(sentences[j]["text"])
-                if (cur_end - cur_start) >= min_len:
-                    text_concat = " ".join(cur_text)
-                    # words per second as a weak proxy for energy
-                    dur = max(1e-6, (cur_end - cur_start))
-                    wps = len(text_concat.split()) / dur
-                    asd_mean = mean_asd(cur_start, cur_end)
-                    # Composite score: question density + pace + ASD bias
-                    composite = score + 0.1 * wps + 1.0 * asd_mean
-                    cands.append({
-                        "start": cur_start,
-                        "end": cur_end,
-                        "text": text_concat[:2000],
-                        "score": composite,
-                        "asd": asd_mean
-                    })
-                j += 1
-
-        cands.sort(key=lambda c: c["score"], reverse=True)
-        return cands[:20]
-
-    def identify_moments(self, transcript: list, model_name: Optional[str] = None, asd_scores: Optional[list] = None, asd_fps: Optional[float] = None):
-        # transcript: list of {start, end, word}
-        try:
-            sentences = self.words_to_sentences(transcript, max_gap=0.6, max_words=30)
-        except Exception as e:
-            print(f"Sentenceization failed: {e}")
-            sentences = []
-        if not sentences:
-            return "[]"
-
-        candidates = self.propose_candidates(
-            sentences,
-            min_len=30.0,
-            max_len=60.0,
-            stride=1,
-            asd_scores=asd_scores,
-            asd_fps=asd_fps,
-        )
-        if not candidates:
-            return "[]"
-
-        # Few-shot examples (small) to steer toward Q->A/story arc and non-overlap
-        few_shot = """
-Examples:
-Candidates: [{"start": 0, "end": 35, "text": "Why do habits stick?"},
- {"start": 35, "end": 68, "text": "They wire in via repetition..."},
- {"start": 70, "end": 95, "text": "Thanks for listening"}]
-Good output: [{"start": 0, "end": 68}]
-Bad output (avoid greeting-only or overlapping): []
-"""
-
-        prompt_parts = [
-            "Select non-overlapping, viral podcast clip windows (30–60s) from the candidates. ",
-            "Prefer question→answer or a concise story arc. Use candidates' timestamps exactly. ",
-            'Avoid greetings/thanks-only. Return JSON array: [{"start": number, "end": number}].\n',
-            few_shot,
-            "Candidates:\n",
-        ]
-        prompt = "".join(prompt_parts)
-
-        compact = [{"start": c["start"], "end": c["end"], "text": c["text"]} for c in candidates]
-
-        model_to_use = model_name or self.gen_model_name
-        print(f"Gemini model: {model_to_use}")
-        response = self.gemini_client.models.generate_content(
-            model=model_to_use,
-            contents=prompt + json.dumps(compact),
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=types.Schema(
-                    type=types.Type.ARRAY,
-                    items=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "start": types.Schema(type=types.Type.NUMBER),
-                            "end": types.Schema(type=types.Type.NUMBER),
-                        },
-                        required=["start", "end"],
-                    ),
-                ),
-                temperature=0.2,
-                top_p=0.95,
-                top_k=32,
-            ),
-        )
-        # Log usage if SDK provides it (input/output tokens, etc.)
-        usage = getattr(response, "usage_metadata", None)
-        if usage:
-            try:
-                print(f"Gemini usage: {usage}")
-            except Exception:
-                pass
-        print(f"Identified moments response: {response.text}")
+    The transcript is as follows:\n\n""" + str(transcript))
+        print(f"Identified moments response: ${response.text}")
         return response.text
-
-    # --- Active Speaker Detection (global) ---
-    def compute_global_asd(self, base_dir: pathlib.Path, video_path: pathlib.Path) -> tuple[Optional[list], Optional[float]]:
-        """Run Columbia ASD on the full input video to estimate active speaker per frame.
-        Returns (frame_scores, fps). If it fails, returns (None, None).
-        """
-        try:
-            # Reuse the ASD pipeline by pointing to the base video name "input"
-            columbia_command = (f"python Columbia_test.py --videoName input "
-                                f"--videoFolder {str(base_dir)} "
-                                f"--pretrainModel weight/finetuning_TalkSet.model")
-            start = time.time()
-            subprocess.run(columbia_command, cwd="/LR-ASD", shell=True, check=True)
-            print(f"Global ASD completed in {time.time()-start:.2f}s")
-
-            # Outputs are stored under {base_dir}/input/pywork
-            work_dir = base_dir / "input" / "pywork"
-            tracks_path = work_dir / "tracks.pckl"
-            scores_path = work_dir / "scores.pckl"
-            if not tracks_path.exists() or not scores_path.exists():
-                print("Global ASD: tracks/scores not found")
-                return None, None
-
-            with open(tracks_path, "rb") as f:
-                tracks = pickle.load(f)
-            with open(scores_path, "rb") as f:
-                scores = pickle.load(f)
-
-            # Aggregate per-frame max score across tracks
-            # Determine number of frames by scanning track frame indices
-            max_frame = 0
-            for track in tracks:
-                frames = track["track"]["frame"].tolist()
-                if frames:
-                    max_frame = max(max_frame, int(max(frames)))
-            total_frames = max_frame + 1
-            frame_scores = np.zeros(total_frames, dtype=np.float32)
-
-            for tidx, track in enumerate(tracks):
-                score_array = scores[tidx]
-                for fidx, frame in enumerate(track["track"]["frame" ].tolist()):
-                    if 0 <= frame < total_frames and 0 <= fidx < len(score_array):
-                        frame_scores[frame] = max(frame_scores[frame], float(score_array[fidx]))
-
-            # Assume 25 fps for ASD frames (Columbia pipeline default in this repo)
-            fps = 25.0
-            return frame_scores.tolist(), fps
-        except Exception as e:
-            print(f"Global ASD failed: {e}")
-            return None, None
-
-    # --- Post process to sentence boundaries and enforce 30–60s non-overlap ---
-    def enforce_clip_bounds(self, clips: list, sentences: list, min_len: float = 30.0, max_len: float = 60.0):
-        if not clips:
-            return []
-        # Helper to find sentence index by time
-        starts = [s["start"] for s in sentences]
-        ends = [s["end"] for s in sentences]
-
-        def nearest_start(t: float) -> float:
-            # choose sentence start at/after t if possible, else closest prior
-            for s in sentences:
-                if s["start"] >= t:
-                    return s["start"]
-            return sentences[-1]["start"]
-
-        def nearest_end(t: float) -> float:
-            # choose sentence end at/after t
-            for s in sentences:
-                if s["end"] >= t:
-                    return s["end"]
-            return sentences[-1]["end"]
-
-        adjusted = []
-        for c in clips:
-            s = float(c.get("start", 0.0))
-            e = float(c.get("end", 0.0))
-            if e <= s:
-                continue
-            ns = nearest_start(s)
-            ne = nearest_end(e)
-            # Expand to min_len if needed
-            if (ne - ns) < min_len:
-                # expand end forward along sentence ends
-                for sent in sentences:
-                    if sent["end"] > ne:
-                        ne = sent["end"]
-                        if (ne - ns) >= min_len:
-                            break
-            # Trim to max_len if needed
-            if (ne - ns) > max_len:
-                # find last sentence end within max_len
-                acc_end = ns
-                for sent in sentences:
-                    if sent["end"] <= ns:
-                        continue
-                    next_end = sent["end"]
-                    if (next_end - ns) <= max_len:
-                        acc_end = next_end
-                    else:
-                        break
-                ne = max(acc_end, min(ns + min_len, ne))
-            adjusted.append({"start": ns, "end": ne})
-
-        # Enforce non-overlap by trimming or dropping
-        adjusted.sort(key=lambda x: x["start"]) 
-        non_overlap = []
-        last_end = -1e9
-        for c in adjusted:
-            if c["start"] >= last_end:
-                non_overlap.append(c)
-                last_end = c["end"]
-            else:
-                # try to trim start to last_end via next sentence start
-                ns = c["start"]
-                for sent in sentences:
-                    if sent["start"] >= last_end:
-                        ns = sent["start"]
-                        break
-                if (c["end"] - ns) >= min_len:
-                    non_overlap.append({"start": ns, "end": c["end"]})
-                    last_end = c["end"]
-                # else drop
-        return non_overlap
 
     @modal.fastapi_endpoint(method="POST")
     def process_video(self, request: ProcessVideoRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
         s3_key = request.s3_key
 
-        expected_token = os.environ.get("AUTH_TOKEN")
-        if expected_token is None:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail="Server not configured: AUTH_TOKEN is missing. Add it to your Modal secret or environment.")
-        if token.credentials != expected_token:
+        if token.credentials != os.environ["AUTH_TOKEN"]:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="Incorrect bearer token", headers={"WWW-Authenticate": "Bearer"})
 
@@ -704,67 +406,25 @@ Bad output (avoid greeting-only or overlapping): []
         transcript_segments_json = self.transcribe_video(base_dir, video_path)
         transcript_segments = json.loads(transcript_segments_json)
 
-        # Optional: compute global ASD to bias candidate scoring
-        asd_scores = None
-        asd_fps = None
-        if request.compute_asd:
-            print("Computing global ASD for candidate biasing...")
-            asd_scores, asd_fps = self.compute_global_asd(base_dir, video_path)
-
         # 2. Identify moments for clips
         print("Identifying clip moments")
-        # Allow per-request model override
-        selected_model = request.model or os.environ.get("GEMINI_MODEL", self.gen_model_name)
-        identified_moments_raw = self.identify_moments(transcript_segments, model_name=selected_model, asd_scores=asd_scores, asd_fps=asd_fps)
+        identified_moments_raw = self.identify_moments(transcript_segments)
 
-        # JSON mode should already return parseable JSON
-        try:
-            clip_moments = json.loads(identified_moments_raw)
-            if not isinstance(clip_moments, list):
-                print("Identify moments output not a list; using empty list")
-                clip_moments = []
-        except Exception as e:
-            print(f"Identify moments parse error: {e}")
+        cleaned_json_string = identified_moments_raw.strip()
+        if cleaned_json_string.startswith("```json"):
+            cleaned_json_string = cleaned_json_string[len("```json"):].strip()
+        if cleaned_json_string.endswith("```"):
+            cleaned_json_string = cleaned_json_string[:-len("```")].strip()
+
+        clip_moments = json.loads(cleaned_json_string)
+        if not clip_moments or not isinstance(clip_moments, list):
+            print("Error: Identified moments is not a list")
             clip_moments = []
 
-        # 2.1 Post-process to sentence boundaries and enforce 30–60s non-overlap
-        sentences_for_bounds = self.words_to_sentences(transcript_segments, max_gap=0.6, max_words=30)
-        clip_moments = self.enforce_clip_bounds(clip_moments, sentences_for_bounds, min_len=30.0, max_len=60.0)
         print(clip_moments)
 
-        # Decide how many clips to render
-        # Priority: request.max_clips -> env MAX_CLIPS -> dynamic by duration (~1 per 6 minutes, min 1, max 12)
-        max_clips = None
-        if request.max_clips is not None:
-            try:
-                max_clips = max(1, min(20, int(request.max_clips)))
-            except Exception:
-                max_clips = None
-
-        if max_clips is None:
-            env_max = os.environ.get("MAX_CLIPS")
-            if env_max:
-                try:
-                    max_clips = max(1, min(20, int(env_max)))
-                except Exception:
-                    max_clips = None
-
-        if max_clips is None:
-            dur = get_media_duration_seconds(video_path) or 0.0
-            if dur > 0:
-                # About 1 clip per 6 minutes of video. Clamp to [1, 12].
-                # 6 minutes = 360 seconds
-                max_clips = max(1, min(12, int(dur // 360)))
-                if max_clips == 0:
-                    max_clips = 1
-            else:
-                # Fallback if duration unavailable
-                max_clips = 6
-
-        print(f"Rendering up to {max_clips} clips (identified {len(clip_moments)})")
-
         # 3. Process clips
-        for index, moment in enumerate(clip_moments[:max_clips]):
+        for index, moment in enumerate(clip_moments[:5]):
             if "start" in moment and "end" in moment:
                 print("Processing clip" + str(index) + " from " +
                       str(moment["start"]) + " to " + str(moment["end"]))
