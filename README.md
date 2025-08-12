@@ -284,9 +284,9 @@ Response:
 - Subtitles font missing: the Modal image downloads Anton font at build time; redeploy if needed.
 
 
-## 🗺️ Roadmap
+## 🗺️ Future Plan
 
-- Multilingual subtitles
+- Generating subtitles for multilanguages , if possible 
 - More “clip styles” (Q&A, story, teachable moment)
 - YouTube URL ingestion (yt-dlp) and channel sync
 - Scheduled auto-posting
