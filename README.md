@@ -3,7 +3,7 @@
 	This README explains the product, architecture, setup, and workflow end-to-end.
 -->
 
-# AI Podcast Clips 🎹🎨
+# AI Podcast Clips
 
 Turn full podcast episodes into viral, short-form clips tailored for YouTube Shorts, TikTok, and Reels. The system transcribes audio, finds high-impact moments, centers the active speaker, adds subtitles, and exports vertical clips ready to download.
 
@@ -12,15 +12,13 @@ Live app: https://frontend-five-snowy-51.vercel.app/
 
 ## 📸 Product Preview
 
-Add the screenshots from your deployed app to the `docs/images` folder using these filenames (already referenced below):
+Below are the screenshots from my deployed app to the `docs/images` folder
 
 - `hero.png` — Landing hero section
 - `features.png` — Features grid
 - `pricing.png` — Pricing plans
 - `dashboard-upload.png` — Upload & processing queue
 - `dashboard-clips.png` — Generated clips preview
-
-> Screenshots are optional but highly recommended to give users a quick tour.
 
 | Landing | Features | Pricing |
 |---|---|---|
@@ -66,7 +64,6 @@ Add the screenshots from your deployed app to the `docs/images` folder using the
 
 
 ## 🗺️ Architecture Overview
-Instead of a generated diagram, here are clear visual flows you can view and share. Place the PNGs into `docs/images` with the exact filenames below (they’re already referenced here).
 
 ### High-level creating clips flow
 
