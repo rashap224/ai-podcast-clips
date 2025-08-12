@@ -10,7 +10,7 @@ Turn full podcast episodes into viral, short-form clips tailored for YouTube Sho
 Live app: https://frontend-five-snowy-51.vercel.app/
 
 
-## 📸 Product Preview
+## 📸 Project Preview
 
 Below are the screenshots from my deployed app to the `docs/images` folder
 
