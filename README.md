@@ -92,7 +92,7 @@ Vertical video framing strategy (crop/blur + active speaker centering):
 ![Vertical video cropping](./docs/images/create-vertical-video.png)
 
 Controls and knobs:
-- `GEMINI_MODEL` to pick model (e.g., `gemini-2.5-pro` or `gemini-2.5-flash`).
+<!-- - `GEMINI_MODEL` to pick model (e.g., `gemini-2.5-pro` or `gemini-2.5-flash`). -->
 - `MAX_CLIPS` env or request `max_clips` controls how many clips to render.
 - Sentence gap and word caps are tuned in `main.py`.
 
